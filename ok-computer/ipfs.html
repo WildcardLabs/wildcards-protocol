@@ -38,31 +38,45 @@
       }
 
       function sanitizeHtml(htmlContent) {
-        // Remove potentially dangerous tags
-        htmlContent = htmlContent.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
-        htmlContent = htmlContent.replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '');
-        htmlContent = htmlContent.replace(/<object[\s\S]*?>[\s\S]*?<\/object>/gi, '');
-        htmlContent = htmlContent.replace(/<embed[\s\S]*?>[\s\S]*?<\/embed>/gi, '');
-        htmlContent = htmlContent.replace(/\s+on\w+="[^"]*"/gi, '');
-        htmlContent = htmlContent.replace(/\s+on\w+='[^']*'/gi, '');
-        htmlContent = htmlContent.replace(/javascript:/gi, '');
+  // 1. Remove dangerous tags (both block and self-closing)
+  htmlContent = htmlContent.replace(/<(script|iframe|embed|object)[\s\S]*?<\/\1\s*>/gi, '');
+  htmlContent = htmlContent.replace(/<(script|iframe|embed|object)[^>]*?>/gi, '');
 
-        // Inject CSP meta tag
-        const security = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; script-src 'none'; style-src 'self' 'unsafe-inline';">`;
-        const headTagPattern = /<head[^>]*>/i;
-        const cspMetaTagPattern = /<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i;
+  // 2. Remove inline event handlers
+  htmlContent = htmlContent.replace(/\s+on\w+="[^"]*"/gi, '');
+  htmlContent = htmlContent.replace(/\s+on\w+='[^']*'/gi, '');
 
-        if (!htmlContent.match(headTagPattern)) {
-          htmlContent = `<head>${security}</head>` + htmlContent;
-        } else {
-          if (htmlContent.match(cspMetaTagPattern)) {
-            htmlContent = htmlContent.replace(cspMetaTagPattern, '');
-          }
-          htmlContent = htmlContent.replace(headTagPattern, match => `${match}${security}`);
-        }
+  // 3. Sanitize dangerous href attributes
+  htmlContent = htmlContent.replace(/href\s*=\s*["'](?!https?:|\/)[^"']*["']/gi, 'href="#"');
 
-        return htmlContent;
-      }
+  // 4. Sanitize dangerous src attributes (allow only http, https, /, or data:)
+  htmlContent = htmlContent.replace(/src\s*=\s*["'](?!https?:|\/|data:image\/(png|jpeg|gif);base64)[^"']*["']/gi, '');
+
+  // 5. Strip all attributes from <img> except safe base64 or http src
+  htmlContent = htmlContent.replace(/<img([^>]+)>/gi, (match, attrs) => {
+    const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
+    if (srcMatch && /^(https?:|\/|data:image\/(png|jpeg|gif);base64)/.test(srcMatch[1])) {
+      return `<img src="${srcMatch[1]}">`;
+    }
+    return ''; // Drop the <img> tag entirely if it's not safe
+  });
+
+  // 6. Inject CSP <meta> tag
+  const security = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; script-src 'none'; style-src 'self' 'unsafe-inline';">`;
+  const headTagPattern = /<head[^>]*>/i;
+  const cspMetaTagPattern = /<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i;
+
+  if (!htmlContent.match(headTagPattern)) {
+    htmlContent = `<head>${security}</head>` + htmlContent;
+  } else {
+    if (htmlContent.match(cspMetaTagPattern)) {
+      htmlContent = htmlContent.replace(cspMetaTagPattern, '');
+    }
+    htmlContent = htmlContent.replace(headTagPattern, match => `${match}${security}`);
+  }
+
+  return htmlContent;
+}
 
       async function loadContent() {
         let idParam;
