@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
     <style>
       html, body {
         margin: 0;
@@ -39,11 +40,20 @@
         return selector + encodedId + cleanKey;
       }
 
+      window.addEventListener("message", (event) => {
+        const { type, href } = event.data || {};
+        if (type === "external-link" && typeof href === "string") {
+          window.open(href, "_blank", "noopener,noreferrer");
+        }
+      });
+
       function injectIframeFromHtml(htmlContent) {
-        const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline';">`;
+        const csp = `
+          <meta http-equiv="Content-Security-Policy"
+                content="default-src 'none'; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
+        `;
         const charset = `<meta charset="UTF-8">`;
         const viewport = `<meta name="viewport" content="width=device-width, initial-scale=1">`;
-        
 
         const headTagPattern = /<head[^>]*>/i;
         const cspTagPattern = /<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i;
@@ -51,14 +61,12 @@
         if (!htmlContent.match(headTagPattern)) {
           htmlContent = `<head>${charset}${viewport}${csp}</head>` + htmlContent;
         } else {
-
           if (!htmlContent.match(/<meta[^>]*charset/i)) {
             htmlContent = htmlContent.replace(headTagPattern, match => `${match}${charset}`);
           }
           if (!htmlContent.match(/<meta[^>]*viewport/i)) {
             htmlContent = htmlContent.replace(headTagPattern, match => `${match}${viewport}`);
           }
-          
           if (htmlContent.match(cspTagPattern)) {
             htmlContent = htmlContent.replace(cspTagPattern, '');
           }
@@ -68,6 +76,29 @@
         const titleMatch = htmlContent.match(/<title>([^<]+)<\/title>/i);
         if (titleMatch) {
           document.title = titleMatch[1];
+        }
+
+        const clickScript = `
+          <script>
+            document.addEventListener("DOMContentLoaded", function() {
+              document.querySelectorAll('a[target="_blank"]').forEach(link => {
+                link.addEventListener('click', function(e) {
+                  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+                  const href = this.getAttribute('href');
+                  if (href && href.startsWith('http')) {
+                    e.preventDefault();
+                    window.parent.postMessage({ type: 'external-link', href: href }, '*');
+                  }
+                });
+              });
+            });
+          <\/script>
+        `;
+
+        if (htmlContent.includes("</body>")) {
+          htmlContent = htmlContent.replace("</body>", clickScript + "</body>");
+        } else {
+          htmlContent += clickScript;
         }
 
         const escaped = htmlContent
@@ -87,7 +118,7 @@
                       background-color: white;
                       overflow: hidden;
                       border: none;">
-            <iframe sandbox="allow-scripts allow-popups allow-same-origin"
+            <iframe sandbox="allow-scripts allow-popups"
                     style="width: 100vw; height: 100vh; border: none; overflow: auto;"
                     srcdoc="${escaped}">
             </iframe>
@@ -127,9 +158,7 @@
           try {
             const res = await fetch("https://mainnet.base.org/", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body)
             });
 
@@ -160,7 +189,8 @@
                     <h2>[OK COMPUTER #${idParam}] hasn't setup their onchain webpage yet!</h2>
                     <img src="data:image/webp;base64,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">
                     <p>
-                      <a style="color:#004cff;" target="_blank" href="https://opensea.io/item/base/0xce2830932889c7fb5e5206287c43554e673dcc88/${idParam}">
+                      <a style="color:#004cff;" target="_blank"
+                         href="https://opensea.io/item/base/0xce2830932889c7fb5e5206287c43554e673dcc88/${idParam}">
                         View [OK COMPUTERS #${idParam}] on Opensea
                       </a>
                     </p>
